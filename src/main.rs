@@ -1,7 +1,7 @@
 use anyhow::Result;
 use tokio_stream::StreamExt;
 
-use logagg::{Cli, Commands, DockerService};
+use logagg::{Cli, Commands, DockerService, LogDiscoverer, run_dashboard};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -12,9 +12,40 @@ async fn main() -> Result<()> {
     let docker_service = DockerService::new()?;
 
     match cli.command {
+        Commands::Dashboard { refresh_ms, tail_lines, hide_debug, use_docker_logs, use_file_logs } => {
+            println!("🚀 Lancement du dashboard TUI...");
+            println!("   📚 Chargement de {} logs récents par container", tail_lines);
+            println!("   🔄 Actualisation toutes les {}ms", refresh_ms);
+            if hide_debug {
+                println!("   🔇 Logs DEBUG masqués pour une vue plus claire");
+            }
+            if use_docker_logs {
+                println!("   🐳 Mode Docker logs forcé (pas de recherche de fichiers)");
+            } else if use_file_logs {
+                println!("   📁 Mode fichiers de logs forcé (pas de logs Docker)");
+            } else {
+                println!("   🔄 Mode automatique (Docker en priorité, fichiers en fallback)");
+            }
+            println!();
+            println!("   ⚡ Contrôles :");
+            println!("     ↑↓ / j/k : naviguer entre containers");
+            println!("     Enter    : actualiser maintenant");
+            println!("     q / Esc  : quitter");
+            println!();
+            run_dashboard(refresh_ms, tail_lines, hide_debug, use_docker_logs, use_file_logs).await?;
+        }
         Commands::List => {
             println!("📋 Containers disponibles:");
             list_containers(&docker_service).await?;
+        }
+        Commands::Discover { services } => {
+            println!("🔍 Découverte des fichiers de logs:");
+            if let Some(service_names) = services {
+                println!("   Services ciblés: {:?}", service_names);
+                test_log_discovery(&docker_service).await?;
+            } else {
+                test_log_discovery(&docker_service).await?;
+            }
         }
         Commands::Watch {
             services,
@@ -133,6 +164,44 @@ async fn watch_specific_services(
 
     while let Some(log_entry) = log_stream.next().await {
         println!("{}", log_entry.format_colored());
+    }
+
+    Ok(())
+}
+
+async fn test_log_discovery(docker_service: &DockerService) -> Result<()> {
+    let containers = docker_service.list_containers().await?;
+    let docker_client = docker_service.get_client(); // Tu devras ajouter cette méthode
+    let discoverer = LogDiscoverer::new(docker_client);
+
+    for container in containers {
+        println!("\n🐳 Container: {} ({})", container.name, container.image);
+
+        let log_sources = discoverer.discover_log_files(&container.id, &container.name).await?;
+
+        if log_sources.is_empty() {
+            println!("   📄 Aucun fichier de log actif trouvé");
+        } else {
+            for source in &log_sources {
+                println!("   📄 {} ({:?}) - {} bytes",
+                         source.file_path,
+                         source.category,
+                         source.size_bytes
+                );
+
+                // Affiche un échantillon
+                let sample_lines: Vec<&str> = source.sample_content
+                    .lines()
+                    .take(2)
+                    .collect();
+
+                for line in sample_lines {
+                    if !line.trim().is_empty() {
+                        println!("      │ {}", line.trim());
+                    }
+                }
+            }
+        }
     }
 
     Ok(())

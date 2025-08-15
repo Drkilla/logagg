@@ -28,6 +28,13 @@ pub enum ParsedLogData {
         logger: String,
         message: String,
     },
+    SymfonyLog {
+        channel: String,
+        level_name: String,
+        message: String,
+        context: serde_json::Value,
+        timestamp: String,
+    },
 }
 
 /// Niveau de log (comme un enum Symfony)
@@ -106,6 +113,25 @@ impl LogEntry {
         }
     }
 
+    /// Crée une entrée avec timestamp personnalisé
+    pub fn new_with_timestamp(
+        timestamp: DateTime<Utc>,
+        service: String,
+        level: LogLevel,
+        message: String,
+        source: LogSource,
+        parsed_data: Option<ParsedLogData>,
+    ) -> Self {
+        Self {
+            timestamp,
+            service,
+            level,
+            message,
+            source,
+            parsed_data,
+        }
+    }
+
     /// Format pour affichage console (équivalent d'un __toString())
     pub fn format_colored(&self) -> String {
         use colored::*;
@@ -181,6 +207,85 @@ impl LogEntry {
             },
             ParsedLogData::GenericJson { logger, message } => {
                 format!("[{}] {}", logger.cyan(), message)
+            },
+            ParsedLogData::SymfonyLog { channel, level_name: _, message, context, timestamp: _ } => {
+                let channel_colored = match channel.as_str() {
+                    "app" => channel.blue(),
+                    "request" => channel.green(),
+                    "security" => channel.red(),
+                    "doctrine" => channel.purple(),
+                    _ => channel.white(),
+                };
+
+                // Extrait des infos importantes du contexte
+                let mut context_parts = Vec::new();
+
+                // Pour les erreurs HTTP
+                if let Some(method) = context.get("method") {
+                    if let Some(url) = context.get("url") {
+                        context_parts.push(format!("{} {}",
+                                                   method.as_str().unwrap_or("?").yellow().bold(),
+                                                   url.as_str().unwrap_or("?").white()
+                        ));
+                    }
+                }
+
+                // Status code
+                if let Some(status) = context.get("status_code") {
+                    if let Some(status_num) = status.as_u64() {
+                        let status_colored = match status_num {
+                            200..=299 => status_num.to_string().green(),
+                            300..=399 => status_num.to_string().cyan(),
+                            400..=499 => status_num.to_string().yellow(),
+                            500..=599 => status_num.to_string().red(),
+                            _ => status_num.to_string().white(),
+                        };
+                        context_parts.push(format!("→ {}", status_colored));
+                    }
+                }
+
+                // IP address
+                if let Some(ip) = context.get("ip") {
+                    context_parts.push(format!("from {}", ip.as_str().unwrap_or("?").bright_black()));
+                }
+
+                // Exception class (shortened)
+                if let Some(exception_class) = context.get("exception_class") {
+                    let short_exception = exception_class.as_str()
+                        .unwrap_or("Exception")
+                        .split('\\')
+                        .last()
+                        .unwrap_or("Exception");
+                    context_parts.push(short_exception.red().to_string());
+                }
+
+                // File and line (pour les erreurs)
+                if let Some(file) = context.get("file") {
+                    if let Some(line) = context.get("line") {
+                        let short_file = file.as_str()
+                            .unwrap_or("")
+                            .split('/')
+                            .last()
+                            .unwrap_or("unknown");
+                        context_parts.push(format!("at {}:{}",
+                                                   short_file.bright_black(),
+                                                   line.as_u64().unwrap_or(0).to_string().bright_black()
+                        ));
+                    }
+                }
+
+                let context_info = if !context_parts.is_empty() {
+                    format!(" {}", context_parts.join(" "))
+                } else {
+                    String::new()
+                };
+
+                format!(
+                    "[{}] {}{}",
+                    channel_colored.bold(),
+                    message.trim(),
+                    context_info
+                )
             }
         }
     }

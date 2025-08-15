@@ -31,8 +31,38 @@ pub enum Commands {
         compose_file: String,
     },
 
+    /// Interface TUI pour visualiser les logs par container
+    Dashboard {
+        /// Actualisation en millisecondes
+        #[arg(long, default_value = "1000")]
+        refresh_ms: u64,
+        
+        /// Nombre de logs récents à charger initialement
+        #[arg(long, default_value = "200")]
+        tail_lines: u32,
+        
+        /// Masquer les logs de niveau DEBUG pour une vue plus claire
+        #[arg(long)]
+        hide_debug: bool,
+        
+        /// Forcer l'utilisation des logs Docker (défaut: Docker puis fichiers en fallback)
+        #[arg(long)]
+        use_docker_logs: bool,
+        
+        /// Forcer l'utilisation des fichiers de logs au lieu de Docker
+        #[arg(long)]
+        use_file_logs: bool,
+    },
+
     /// Liste les containers disponibles
     List,
+    
+    /// Découvre les fichiers de logs dans les containers
+    Discover {
+        /// Noms des services/containers à surveiller
+        #[arg(short, long, value_delimiter = ',')]
+        services: Option<Vec<String>>,
+    }
 }
 
 impl Cli {
