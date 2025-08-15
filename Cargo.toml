@@ -1,0 +1,28 @@
+[package]
+name = "logagg"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Docker client async
+bollard = "0.16"
+
+# Async runtime
+tokio = { version = "1.0", features = ["full"] }
+tokio-stream = "0.1"
+
+# CLI arguments
+clap = { version = "4.0", features = ["derive"] }
+
+# Colors et formatting
+colored = "2.0"
+
+# Error handling
+anyhow = "1.0"
+
+# Serialization (pour les logs JSON)
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# DateTime
+chrono = { version = "0.4", features = ["serde"] }
